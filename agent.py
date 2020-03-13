@@ -80,14 +80,14 @@ class Agent():
             state_size, action_size, fc1, fc2, seed).to(self.device)
         self.actor_target_p1 = Actor(
             state_size, action_size, fc1, fc2, seed).to(self.device)
-        self.actor_target_p1.load_state_dict(self.actor_local.state_dict())
+        self.actor_target_p1.load_state_dict(self.actor_local_p1.state_dict())
 
         # actor local and target network for player 2
         self.actor_local_p2 = Actor(
             state_size, action_size, fc1, fc2, seed).to(self.device)
         self.actor_target_p2 = Actor(
             state_size, action_size, fc1, fc2, seed).to(self.device)
-        self.actor_target_p2.load_state_dict(self.actor_local.state_dict())
+        self.actor_target_p2.load_state_dict(self.actor_local_p2.state_dict())
 
         # optimizer for critic and actor network
         self.optimizer_critic = optim.Adam(
@@ -150,12 +150,14 @@ class Agent():
         self.eps *= .99 # annealing the epsilon is good for convergence
         epsilon = self.eps
 
-        self.actor_local.eval()
+        self.actor_local_p1.eval()
+        self.actor_local_p2.eval()
         with torch.no_grad():
-            action1 = self.actor_local_p1(state)
-            action2 = self.actor_local_p2(state)
-            actions = np.stack(action1, action2)
-        self.actor_local.train()
+            action1 = self.actor_local_p1(state[0].unsqueeze(0))
+            action2 = self.actor_local_p2(state[1].unsqueeze(0))
+            actions = torch.stack((action1.squeeze(0), action2.squeeze(0)))
+        self.actor_local_p1.train()
+        self.actor_local_p2.train()
 
         if training:
             #return np.clip(actions.cpu().data.numpy()+np.random.uniform(-1,1,(2,2))*epsilon,-1,1) #adding noise to action space
@@ -166,7 +168,7 @@ class Agent():
                 # epsilon greedy policy
                 return np.clip(actions.cpu().data.numpy(), -1, 1)
         else:
-            return actions.cpu().data.numpy()
+            return np.clip(actions.cpu().data.numpy(), -1, 1)
 
     def learn(self, experiences):
         """Update value parameters using given batch of experience tuples.
@@ -175,52 +177,106 @@ class Agent():
             experiences (Tuple[torch.Variable]): tuple of (s, a, r, s', done) tuples 
             gamma (float): discount factor
         """
-        for experience in experiences:
-            states, all_state, action, all_actions, rewards, next_state, all_next_state, dones = experience
+        for _, experience in enumerate(experiences):
+            if _ == 0:
+                states, all_state, action, all_actions, rewards, next_state, all_next_state, dones = experience
 
-            all_next_actions = self.actor_target(
-                all_next_state.view(self.batch_size*2, -1)).view(self.batch_size, -1)
+                all_next_actions = self.actor_target_p1(
+                    all_next_state.view(self.batch_size*2, -1)).view(self.batch_size, -1)
 
-            critic_target_input = torch.cat((all_next_state, all_next_actions.view(
-                self.batch_size*2, -1)[1::2]), dim=1).to(self.device)
-            with torch.no_grad():
-                Q_target_next = self.critic_target(
-                    critic_target_input, all_next_actions.view(self.batch_size*2, -1)[::2])
-            Q_targets = rewards + (gamma * Q_target_next * (1-dones))
+                critic_target_input = torch.cat((all_next_state, all_next_actions.view(
+                    self.batch_size*2, -1)[1::2]), dim=1).to(self.device)
+                with torch.no_grad():
+                    Q_target_next = self.critic_target(
+                        critic_target_input, all_next_actions.view(self.batch_size*2, -1)[::2])
+                Q_targets = rewards + (self.gamma * Q_target_next * (1-dones))
 
-            critic_local_input = torch.cat(
-                (all_state, all_actions.view(self.batch_size*2, -1)[1::2]), dim=1).to(self.device)
-            Q_expected = self.critic_local(critic_local_input, action)
+                critic_local_input = torch.cat(
+                    (all_state, all_actions.view(self.batch_size*2, -1)[1::2]), dim=1).to(self.device)
+                Q_expected = self.critic_local(critic_local_input, action)
 
-            #critic loss
-            l1_loss = torch.nn.SmoothL1Loss()
+                #critic loss
+                l1_loss = torch.nn.SmoothL1Loss()
 
-            loss = l1_Loss(Q_expected, Q_targets.detach())
+                loss = l1_loss(Q_expected, Q_targets.detach())
 
-            self.optimizer_critic.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.critic_local.parameters(), 1)
-            self.optimizer_critic.step()
+                self.optimizer_critic.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.critic_local.parameters(), 1)
+                self.optimizer_critic.step()
 
-            #actor loss
+                #actor loss
 
-            action_pr_self = self.actor_local(states)
-            action_pr_other = self.actor_local(
-                all_next_state.view(self.batch_size*2, -1)[1::2]).detach()
+                action_pr_self = self.actor_local_p1(states)
+                action_pr_other = self.actor_local_p1(
+                    all_next_state.view(self.batch_size*2, -1)[1::2]).detach()
 
-            #critic_local_input2=torch.cat((all_state,torch.cat((action_pr_self,action_pr_other),dim=1)),dim=1)
-            critic_local_input2 = torch.cat((all_state, action_pr_other), dim=1)
-            p_loss = -self.critic_local(critic_local_input2, action_pr_self).mean()
+                #critic_local_input2=torch.cat((all_state,torch.cat((action_pr_self,action_pr_other),dim=1)),dim=1)
+                critic_local_input2 = torch.cat((all_state, action_pr_other), dim=1)
+                p_loss = -self.critic_local(critic_local_input2, action_pr_self).mean()
 
-            self.optimizer_actor.zero_grad()
-            p_loss.backward()
+                self.optimizer_actor_p1.zero_grad()
+                p_loss.backward()
 
-            self.optimizer_actor.step()
+                self.optimizer_actor_p1.step()
 
-            # ------------------- update target network ------------------- #
-            self.tau = min(5e-1, self.tau*1.001)  # ablation: + 1000 eps to converge with tau = 1e-3
-            self.soft_update(self.critic_local, self.critic_target, self.tau)
-            self.soft_update(self.actor_local, self.actor_target, self.tau)
+                # ------------------- update target network ------------------- #
+                self.tau = min(5e-1, self.tau*1.001)  # ablation: + 1000 eps to converge with tau = 1e-3
+                self.soft_update(self.critic_local, self.critic_target, self.tau)
+                self.soft_update(self.actor_local_p1, self.actor_target_p1, self.tau)
+            else:
+                states, all_state, action, all_actions, rewards, next_state, all_next_state, dones = experience
+
+                all_next_actions = self.actor_target_p2(
+                    all_next_state.view(self.batch_size*2, -1)).view(self.batch_size, -1)
+
+                critic_target_input = torch.cat((all_next_state, all_next_actions.view(
+                    self.batch_size*2, -1)[1::2]), dim=1).to(self.device)
+                with torch.no_grad():
+                    Q_target_next = self.critic_target(
+                        critic_target_input, all_next_actions.view(self.batch_size*2, -1)[::2])
+                Q_targets = rewards + (self.gamma * Q_target_next * (1-dones))
+
+                critic_local_input = torch.cat(
+                    (all_state, all_actions.view(self.batch_size*2, -1)[1::2]), dim=1).to(self.device)
+                Q_expected = self.critic_local(critic_local_input, action)
+
+                #critic loss
+                l1_loss = torch.nn.SmoothL1Loss()
+
+                loss = l1_loss(Q_expected, Q_targets.detach())
+
+                self.optimizer_critic.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(
+                    self.critic_local.parameters(), 1)
+                self.optimizer_critic.step()
+
+                #actor loss
+
+                action_pr_self = self.actor_local_p2(states)
+                action_pr_other = self.actor_local_p2(
+                    all_next_state.view(self.batch_size*2, -1)[1::2]).detach()
+
+                #critic_local_input2=torch.cat((all_state,torch.cat((action_pr_self,action_pr_other),dim=1)),dim=1)
+                critic_local_input2 = torch.cat(
+                    (all_state, action_pr_other), dim=1)
+                p_loss = - \
+                    self.critic_local(critic_local_input2,
+                                      action_pr_self).mean()
+
+                self.optimizer_actor_p2.zero_grad()
+                p_loss.backward()
+
+                self.optimizer_actor_p2.step()
+
+                # ------------------- update target network ------------------- #
+                # ablation: + 1000 eps to converge with tau = 1e-3
+                self.tau = min(5e-1, self.tau*1.001)
+                self.soft_update(self.critic_local,
+                                 self.critic_target, self.tau)
+                self.soft_update(self.actor_local_p2,
+                                 self.actor_target_p2, self.tau)
 
     def soft_update(self, local_model, target_model, tau):
         """Soft update model parameters.

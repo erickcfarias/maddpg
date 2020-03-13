@@ -9,7 +9,7 @@ import os
 from agent import Agent as MA
 
 print('Loading Environment...')
-os.chdir('/home/erickfarias/Documentos/bitbucket/RL_nanodegree/deep-reinforcement-learning/p3_collab-compet/maddpg/')
+os.chdir('/home/erickfarias/Documentos/bitbucket/RL_nanodegree/deep-reinforcement-learning/p3_collab-compet/')
 env = UnityEnvironment(file_name="Tennis_Linux/Tennis.x86_64")
 
 # # get the default brain
@@ -46,7 +46,7 @@ def solve_environment(n_episodes=6000):
     for i_episode in range(1, n_episodes+1):
         env_info = env.reset(train_mode=True)[
             brain_name]  # reset the environment
-        agent.reset_random()  # reset noise object
+        
         state = env_info.vector_observations
 
         score = 0
@@ -56,15 +56,13 @@ def solve_environment(n_episodes=6000):
         while True:
             t = t+1
             action = agent.act(state)
-            env_info = env.step(np.array(action))[brain_name]
+            env_info = env.step(np.stack(action))[brain_name]
             next_state = env_info.vector_observations   # get the next state
             reward = env_info.rewards                   # get the reward
 
             done = env_info.local_done
-            #print(state[0])
             agent.step(state, action, reward, next_state, done)
             state = next_state
-            #print(reward)
             reward_this_episode_1 += reward[0]
             reward_this_episode_2 += reward[1]
 
@@ -75,8 +73,8 @@ def solve_environment(n_episodes=6000):
         scores_window.append(score)       # save most recent score
         scores.append(score)              # save most recent score
 
-        print('\rEpisode {}\tAverage Score: {:.2f}').format(
-            i_episode, np.mean(scores_window), end="")
+        print('\rEpisode {}\tAverage Score: {:.2f}'.format(
+            i_episode, np.mean(scores_window)), end="")
         if i_episode % 100 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(
                 i_episode, np.mean(scores_window)))
