@@ -9,8 +9,9 @@ import os
 from agent import Agent as MA
 
 print('Loading Environment...')
-os.chdir('/home/erickfarias/Documentos/bitbucket/RL_nanodegree/deep-reinforcement-learning/p3_collab-compet/MADDPG/')
-env = UnityEnvironment(file_name="./Tennis_Linux/Tennis.x86_64")
+env = UnityEnvironment(
+    file_name="/home/erickfarias/Documentos/bitbucket/RL_nanodegree/deep-reinforcement-learning/p3_collab-compet/Tennis_Linux/Tennis.x86_64",
+    no_graphics=True)
 
 # # get the default brain
 brain_name = env.brain_names[0]
