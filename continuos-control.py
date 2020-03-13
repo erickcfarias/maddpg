@@ -10,7 +10,7 @@ from agent import Agent as MA
 
 print('Loading Environment...')
 os.chdir('/home/erickfarias/Documentos/bitbucket/RL_nanodegree/deep-reinforcement-learning/p3_collab-compet/')
-env = UnityEnvironment(file_name="Tennis_Linux/Tennis.x86_64")
+env = UnityEnvironment(file_name="Tennis_Linux/Tennis.x86_64", no_graphics=True)
 
 # # get the default brain
 brain_name = env.brain_names[0]
@@ -78,13 +78,13 @@ def solve_environment(n_episodes=6000):
         if i_episode % 100 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(
                 i_episode, np.mean(scores_window)))
-        if np.mean(scores_window) >= 2:
+        if np.mean(scores_window) >= 0.5:
             print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(
                 i_episode-100, np.mean(scores_window)))
-            torch.save(agent.critic_local.state_dict(),
-                       'trained_weights/checkpoint_critic.pth')
-            torch.save(agent.actor_local.state_dict(),
-                       'trained_weights/checkpoint_actor.pth')
+            torch.save(agent.actor_local_p1.state_dict(),
+                       'trained_weights/checkpoint_actor_p1.pth')
+            torch.save(agent.actor_local_p1.state_dict(),
+                       'trained_weights/checkpoint_actor_p2.pth')
             break
     return
 
