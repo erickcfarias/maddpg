@@ -24,22 +24,27 @@ class AgentZero:
         self.gamma = gamma
 
 
-BUFFER_SIZE = int(1e6)  # replay buffer size
-BATCH_SIZE = 512         # minibatch size
-GAMMA = 0.99            # discount factor
-TAU = 1e-2              # for soft update of target parameters
-ACTOR_LR = 1e-3         # Actor network learning rate
-CRITIC_LR = 1e-4        # Actor network learning rate
-UPDATE_EVERY = 20       # how often to update the network (time step)
-#UPDATE_TIMES = 5       # how many times to update in one go
-
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-
 class Agent():
     """Interacts with and learns from the environment."""
 
-    def __init__(self, state_size, action_size, num_agents, seed, fc1=400, fc2=300, update_times=10, weight_decay=1.e-5):
+    def __init__(
+        self,
+        state_size,
+        action_size,
+        num_agents=2,
+        gamma=0.99,
+        seed=7,
+        fc1=400,
+        fc2=300,
+        update_times=10,
+        update_every=20,
+        buffer_size=int(1e6),
+        batch_size=512,
+        critic_lr=1e-4,
+        actor_lr=1e-3,
+        weight_decay=1.e-5,
+        tau=1e-3
+        ):
         """Initialize an Agent object.
         
         Params
@@ -48,44 +53,56 @@ class Agent():
             action_size (int): dimension of each action
             seed (int): random seed
         """
+        self.device = torch.device(
+            "cuda:0" if torch.cuda.is_available() else "cpu")
         self.state_size = state_size
         self.action_size = action_size
+        self.gamma = gamma
         self.seed = random.seed(seed)
         self.n_seed = np.random.seed(seed)
         self.num_agents = num_agents
         self.update_times = update_times
-        self.n_step = 0
-        self.TAU = 1e-3
+        self.update_every = update_every
+        self.batch_size = batch_size
+        self.tau = tau
         self.eps = 1.
-
-        self.noise = []
-        for i in range(num_agents):
-            self.noise.append(OrnsteinUhlenbeckProcess(
-                size=(action_size, ), std=0.5))
 
         # critic local and target network (Q-Learning)
         self.critic_local = Critic(
-            state_size, action_size, fc1, fc2, seed).to(device)
+            state_size, action_size, fc1, fc2, seed).to(self.device)
 
         self.critic_target = Critic(
-            state_size, action_size, fc1, fc2, seed).to(device)
+            state_size, action_size, fc1, fc2, seed).to(self.device)
         self.critic_target.load_state_dict(self.critic_local.state_dict())
 
-        # actor local and target network (Policy gradient)
-        self.actor_local = Actor(
-            state_size, action_size, fc1, fc2, seed).to(device)
-        self.actor_target = Actor(
-            state_size, action_size, fc1, fc2, seed).to(device)
-        self.actor_target.load_state_dict(self.actor_local.state_dict())
+        # actor local and target network for player 1
+        self.actor_local_p1 = Actor(
+            state_size, action_size, fc1, fc2, seed).to(self.device)
+        self.actor_target_p1 = Actor(
+            state_size, action_size, fc1, fc2, seed).to(self.device)
+        self.actor_target_p1.load_state_dict(self.actor_local.state_dict())
+
+        # actor local and target network for player 2
+        self.actor_local_p2 = Actor(
+            state_size, action_size, fc1, fc2, seed).to(self.device)
+        self.actor_target_p2 = Actor(
+            state_size, action_size, fc1, fc2, seed).to(self.device)
+        self.actor_target_p2.load_state_dict(self.actor_local.state_dict())
 
         # optimizer for critic and actor network
         self.optimizer_critic = optim.Adam(
-            self.critic_local.parameters(), lr=CRITIC_LR, weight_decay=1.e-5)
-        self.optimizer_actor = optim.Adam(
-            self.actor_local.parameters(), lr=ACTOR_LR)
+            self.critic_local.parameters(), lr=critic_lr,
+            weight_decay=weight_decay)
+        self.optimizer_actor_p1 = optim.Adam(
+            self.actor_local_p1.parameters(), lr=actor_lr)
+        self.optimizer_actor_p2 = optim.Adam(
+            self.actor_local_p2.parameters(), lr=actor_lr)
 
         # Replay memory
-        self.memory = ReplayBuffer(action_size, BUFFER_SIZE, BATCH_SIZE, seed)
+        self.memory_p1 = ReplayBuffer(
+            self.action_size, buffer_size, self.batch_size, seed)
+        self.memory_p2 = ReplayBuffer(
+            self.action_size, buffer_size, self.batch_size, seed)
 
         # Initialize time step (for updating every UPDATE_EVERY steps)
         self.t_step = 0
@@ -99,19 +116,25 @@ class Agent():
             all_actions = np.concatenate((action[i], action[1-i]))
             all_next_state = np.concatenate((next_state[i], next_state[1-i]))
 
-            self.memory.add(state[i], all_state, action[i], all_actions,
-                            reward[i], next_state[i], all_next_state, done[i])
+            if i == 0:
+                self.memory_p1.add(
+                    state[i], all_state, action[i], all_actions,
+                    reward[i], next_state[i], all_next_state, done[i])
+            else:
+                self.memory_p2.add(
+                    state[i], all_state, action[i], all_actions,
+                    reward[i], next_state[i], all_next_state, done[i])
 
-        # Learn every UPDATE_EVERY time steps.
-        self.t_step = (self.t_step + 1) % UPDATE_EVERY
-
-        if self.t_step == 0:
+        # Learn every update_every steps.
+        self.t_step += 1
+        if self.t_step % self.update_every == 0:
 
             # If enough samples are available in memory, get random subset and learn
-            if len(self.memory) > BATCH_SIZE:
+            if len(self.memory_p1) > self.batch_size:
                 for i in range(self.update_times):
-                    experiences = self.memory.sample()
-                    self.learn(experiences, GAMMA)
+                    experiences_p1 = self.memory_p1.sample()
+                    experiences_p2 = self.memory_p2.sample()
+                    self.learn([experiences_p1, experiences_p2])
 
     def act(self, state, training=True):
         """Returns continous actions values for all action for given state as per current policy.
@@ -129,7 +152,9 @@ class Agent():
 
         self.actor_local.eval()
         with torch.no_grad():
-            actions = self.actor_local(state)
+            action1 = self.actor_local_p1(state)
+            action2 = self.actor_local_p2(state)
+            actions = np.stack(action1, action2)
         self.actor_local.train()
 
         if training:
@@ -143,60 +168,59 @@ class Agent():
         else:
             return actions.cpu().data.numpy()
 
-    def learn(self, experiences, gamma):
+    def learn(self, experiences):
         """Update value parameters using given batch of experience tuples.
         Params
         ======
             experiences (Tuple[torch.Variable]): tuple of (s, a, r, s', done) tuples 
             gamma (float): discount factor
         """
+        for experience in experiences:
+            states, all_state, action, all_actions, rewards, next_state, all_next_state, dones = experience
 
-        states, all_state, action, all_actions, rewards, next_state, all_next_state, dones = experiences
-        batch_size = all_next_state.shape[0]
+            all_next_actions = self.actor_target(
+                all_next_state.view(self.batch_size*2, -1)).view(self.batch_size, -1)
 
-        all_next_actions = self.actor_target(
-            all_next_state.view(batch_size*2, -1)).view(batch_size, -1)
+            critic_target_input = torch.cat((all_next_state, all_next_actions.view(
+                self.batch_size*2, -1)[1::2]), dim=1).to(self.device)
+            with torch.no_grad():
+                Q_target_next = self.critic_target(
+                    critic_target_input, all_next_actions.view(self.batch_size*2, -1)[::2])
+            Q_targets = rewards + (gamma * Q_target_next * (1-dones))
 
-        critic_target_input = torch.cat((all_next_state, all_next_actions.view(
-            batch_size*2, -1)[1::2]), dim=1).to(device)
-        with torch.no_grad():
-            Q_target_next = self.critic_target(
-                critic_target_input, all_next_actions.view(batch_size*2, -1)[::2])
-        Q_targets = rewards + (gamma * Q_target_next * (1-dones))
+            critic_local_input = torch.cat(
+                (all_state, all_actions.view(self.batch_size*2, -1)[1::2]), dim=1).to(self.device)
+            Q_expected = self.critic_local(critic_local_input, action)
 
-        critic_local_input = torch.cat(
-            (all_state, all_actions.view(batch_size*2, -1)[1::2]), dim=1).to(device)
-        Q_expected = self.critic_local(critic_local_input, action)
+            #critic loss
+            l1_loss = torch.nn.SmoothL1Loss()
 
-        #critic loss
-        huber_loss = torch.nn.SmoothL1Loss()
+            loss = l1_Loss(Q_expected, Q_targets.detach())
 
-        loss = huber_loss(Q_expected, Q_targets.detach())
+            self.optimizer_critic.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.critic_local.parameters(), 1)
+            self.optimizer_critic.step()
 
-        self.optimizer_critic.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.critic_local.parameters(), 1)
-        self.optimizer_critic.step()
+            #actor loss
 
-        #actor loss
+            action_pr_self = self.actor_local(states)
+            action_pr_other = self.actor_local(
+                all_next_state.view(self.batch_size*2, -1)[1::2]).detach()
 
-        action_pr_self = self.actor_local(states)
-        action_pr_other = self.actor_local(
-            all_next_state.view(batch_size*2, -1)[1::2]).detach()
+            #critic_local_input2=torch.cat((all_state,torch.cat((action_pr_self,action_pr_other),dim=1)),dim=1)
+            critic_local_input2 = torch.cat((all_state, action_pr_other), dim=1)
+            p_loss = -self.critic_local(critic_local_input2, action_pr_self).mean()
 
-        #critic_local_input2=torch.cat((all_state,torch.cat((action_pr_self,action_pr_other),dim=1)),dim=1)
-        critic_local_input2 = torch.cat((all_state, action_pr_other), dim=1)
-        p_loss = -self.critic_local(critic_local_input2, action_pr_self).mean()
+            self.optimizer_actor.zero_grad()
+            p_loss.backward()
 
-        self.optimizer_actor.zero_grad()
-        p_loss.backward()
+            self.optimizer_actor.step()
 
-        self.optimizer_actor.step()
-
-        # ------------------- update target network ------------------- #
-        self.TAU = min(5e-1, self.TAU*1.001)  # ablation: + 1000 eps to converge with tau = 1e-3
-        self.soft_update(self.critic_local, self.critic_target, self.TAU)
-        self.soft_update(self.actor_local, self.actor_target, self.TAU)
+            # ------------------- update target network ------------------- #
+            self.tau = min(5e-1, self.tau*1.001)  # ablation: + 1000 eps to converge with tau = 1e-3
+            self.soft_update(self.critic_local, self.critic_target, self.tau)
+            self.soft_update(self.actor_local, self.actor_target, self.tau)
 
     def soft_update(self, local_model, target_model, tau):
         """Soft update model parameters.
@@ -211,7 +235,3 @@ class Agent():
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
             target_param.data.copy_(
                 tau*local_param.data + (1.0-tau)*target_param.data)
-
-    def reset_random(self):
-        for i in range(self.num_agents):
-            self.noise[i].reset_states()

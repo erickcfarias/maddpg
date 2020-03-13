@@ -9,8 +9,8 @@ import os
 from agent import Agent as MA
 
 print('Loading Environment...')
-os.chdir('/home/erickfarias/Documentos/bitbucket/RL_nanodegree/deep-reinforcement-learning/p3_collab-compet/MADDPG/')
-env = UnityEnvironment(file_name="./Tennis_Linux/Tennis.x86_64")
+os.chdir('/home/erickfarias/Documentos/bitbucket/RL_nanodegree/deep-reinforcement-learning/p3_collab-compet/maddpg/')
+env = UnityEnvironment(file_name="Tennis_Linux/Tennis.x86_64")
 
 # # get the default brain
 brain_name = env.brain_names[0]
@@ -75,8 +75,8 @@ def solve_environment(n_episodes=6000):
         scores_window.append(score)       # save most recent score
         scores.append(score)              # save most recent score
 
-        print('\rEpisode {}\tAverage Score: {:.2f}'.format(
-            i_episode, np.mean(scores_window)), end="")
+        print('\rEpisode {}\tAverage Score: {:.2f}').format(
+            i_episode, np.mean(scores_window), end="")
         if i_episode % 100 == 0:
             print('\rEpisode {}\tAverage Score: {:.2f}'.format(
                 i_episode, np.mean(scores_window)))
