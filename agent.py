@@ -46,7 +46,6 @@ class Agent():
         tau=1e-3
         ):
         """Initialize an Agent object.
-        
         Params
         ======
             state_size (int): dimension of each state
@@ -291,3 +290,60 @@ class Agent():
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
             target_param.data.copy_(
                 tau*local_param.data + (1.0-tau)*target_param.data)
+    
+    def train(self, env, brain_name, n_episodes=5000):
+        """Deep Q-Learning.
+        
+        Params
+        ======
+            n_episodes (int): maximum number of training episodes
+            max_t (int): maximum number of timesteps per episode
+        """
+        # list containing scores from each episode
+        scores_window = deque(maxlen=100)  # last 100 scores
+        scores = []
+        for i_episode in range(1, n_episodes+1):
+            env_info = env.reset(train_mode=True)[
+                brain_name]  # reset the environment
+
+            state = env_info.vector_observations
+
+            score = 0
+            t = 0
+            reward_this_episode_1 = 0
+            reward_this_episode_2 = 0
+            while True:
+                t = t+1
+                action = self.act(state)
+                env_info = env.step(np.stack(action))[brain_name]
+                next_state = env_info.vector_observations   # get the next state
+                reward = env_info.rewards                   # get the reward
+
+                done = env_info.local_done
+                self.step(state, action, reward, next_state, done)
+                state = next_state
+                reward_this_episode_1 += reward[0]
+                reward_this_episode_2 += reward[1]
+
+                if np.any(done):
+                    break
+
+            score = max(reward_this_episode_1, reward_this_episode_2)
+            scores_window.append(score)       # save most recent score
+            scores.append(score)              # save most recent score
+
+            print('\rEpisode {}\tAverage Score: {:.2f}'.format(
+                i_episode, np.mean(scores_window)), end="")
+            if i_episode % 100 == 0:
+                print('\rEpisode {}\tAverage Score: {:.2f}'.format(
+                    i_episode, np.mean(scores_window)))
+
+            if np.mean(scores_window) >= 0.5:
+                print('\nEnvironment solved in {:d} episodes!\tAverage Score: {:.2f}'.format(
+                    i_episode-100, np.mean(scores_window)))
+                torch.save(self.actor_local_p1.state_dict(),
+                        'checkpoint_actor_p1.pth')
+                torch.save(self.actor_local_p1.state_dict(),
+                        'checkpoint_actor_p2.pth')
+                break
+        return scores
